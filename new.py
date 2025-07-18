@@ -80,7 +80,7 @@ AA_NAME_MAP = {
 
 @st.cache_resource
 def load_model():
-    return joblib.load('anewxgboost_protein_classifier.pkl')
+    return joblib.load('nscxgboost_peptide_classifier.pkl')
 model = load_model()
 
 def color_by_sequence(view, sequence):
