@@ -10,6 +10,7 @@ import py3Dmol
 from stmol import showmol
 from collections import Counter
 import math
+from featex import AAC, APAAC, PAAC, DPC
 
 # ===== CSS Custom Style =====
 st.set_page_config(page_title="Drug Delivery Peptide Prediction", layout="wide")
@@ -146,129 +147,7 @@ def predict_structure(sequence):
         st.error("Failed to get 3D structure from server. Try again later.")
         return None
 
-def AAC(fastas, **kw):
-    AA = 'ACDEFGHIKLMNPQRSTVWY'
-    encodings = []
-    header = [f'AAC_{aa}' for aa in AA]
-    for record in fastas:
-        sequence = str(record.seq).replace('-', '').upper()
-        if len(sequence) == 0:
-            code = [0.0] * len(AA)
-        else:
-            count = Counter(sequence)
-            code = [count.get(aa, 0) / len(sequence) for aa in AA]
-        encodings.append(code)
-    return np.array(encodings, dtype=float), header
 
-def PAAC(fastas, lambdaValue=1, w=0.05, **kw):
-    records = [
-        "#   A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V",
-        "Hydrophobicity  0.62    -2.53   -0.78   -0.9    0.29    -0.85   -0.74   0.48    -0.4    1.38    1.06    -1.5    0.64    1.19    0.12    -0.18   -0.05   0.81    0.26    1.08",
-        "Hydrophilicity  -0.5    3   0.2   3   -1   0.2   3   0   -0.5    -1.8    -1.8    3   -1.3    -2.5    0   0.3   -0.4    -3.4    -2.3    -1.5"
-    ]
-    AA = ''.join(records[0].rstrip().split()[1:])
-    AADict = {aa: idx for idx, aa in enumerate(AA)}
-    AAProperty = []
-    AAPropertyNames = []
-    for line in records[1:]:
-        parts = line.rstrip().split()
-        if parts:
-            AAProperty.append([float(x) for x in parts[1:]])
-            AAPropertyNames.append(parts[0])
-    AAProperty1 = []
-    for prop in AAProperty:
-        meanI = sum(prop) / len(prop)
-        fenmu = math.sqrt(sum([(x - meanI) ** 2 for x in prop]) / len(prop))
-        if fenmu == 0:
-            normalized_prop = [0.0 for x in prop]
-        else:
-            normalized_prop = [(x - meanI) / fenmu for x in prop]
-        AAProperty1.append(normalized_prop)
-    encodings = []
-    header = [f'PAAC_Xc1_{aa}' for aa in AA]
-    for j in range(1, lambdaValue + 1):
-        header.append(f'PAAC_Xc2_lambda{j}')
-    for record in fastas:
-        sequence = str(record.seq).replace('-', '').upper()
-        code = []
-        theta = []
-        for n in range(1, lambdaValue + 1):
-            sum_theta = 0.0
-            if len(sequence) > n:
-                for j in range(len(AAProperty1)):
-                    valid_values = [
-                        AAProperty1[j][AADict[sequence[k]]] * AAProperty1[j][AADict[sequence[k + n]]]
-                        for k in range(len(sequence) - n)
-                        if sequence[k] in AADict and sequence[k + n] in AADict
-                    ]
-                    if valid_values:
-                        sum_theta += sum(valid_values) / (len(sequence) - n)
-            theta.append(sum_theta)
-        myDict = {aa: sequence.count(aa) for aa in AA}
-        total_theta = sum(theta)
-        if total_theta == 0:
-            total_theta = 1
-        code += [myDict[aa] / (1 + w * total_theta) for aa in AA]
-        code += [w * value / (1 + w * total_theta) for value in theta]
-        encodings.append(code)
-    return np.array(encodings, dtype=float), header
-
-def APAAC(fastas, lambdaValue=1, w=0.05, **kw):
-    records = [
-        "#   A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V",
-        "Hydrophobicity  0.62    -2.53   -0.78   -0.9    0.29    -0.85   -0.74   0.48    -0.4    1.38    1.06    -1.5    0.64    1.19    0.12    -0.18   -0.05   0.81    0.26    1.08",
-        "Hydrophilicity  -0.5    3   0.2   3   -1   0.2   3   0   -0.5    -1.8    -1.8    3   -1.3    -2.5    0   0.3   -0.4    -3.4    -2.3    -1.5"
-    ]
-    AA = ''.join(records[0].rstrip().split()[1:])
-    AADict = {aa: idx for idx, aa in enumerate(AA)}
-    AAProperty = []
-    AAPropertyNames = []
-    for line in records[1:]:
-        parts = line.rstrip().split()
-        if parts:
-            AAProperty.append([float(x) for x in parts[1:]])
-            AAPropertyNames.append(parts[0])
-    AAProperty1 = []
-    for prop in AAProperty:
-        meanI = sum(prop) / len(prop)
-        fenmu = math.sqrt(sum([(x - meanI) ** 2 for x in prop]) / len(prop))
-        if fenmu == 0:
-            normalized_prop = [0.0 for x in prop]
-        else:
-            normalized_prop = [(x - meanI) / fenmu for x in prop]
-        AAProperty1.append(normalized_prop)
-    encodings = []
-    header = [f'APAAC_Pc1_{aa}' for aa in AA]
-    for j in range(1, lambdaValue + 1):
-        for name in AAPropertyNames:
-            header.append(f'APAAC_Pc2.{name}.{j}')
-    for record in fastas:
-        sequence = str(record.seq).replace('-', '').upper()
-        code = []
-        theta = []
-        for j, prop in enumerate(AAProperty1):
-            for n in range(1, lambdaValue + 1):
-                sum_theta = 0.0
-                if len(sequence) > n:
-                    valid_values = []
-                    for k in range(len(sequence) - n):
-                        aa1 = sequence[k]
-                        aa2 = sequence[k + n]
-                        if aa1 in AADict and aa2 in AADict:
-                            valid_values.append(prop[AADict[aa1]] * prop[AADict[aa2]])
-                    if valid_values:
-                        sum_theta = sum(valid_values) / (len(sequence) - n)
-                theta.append(sum_theta)
-        myDict = {aa: sequence.count(aa) for aa in AA}
-        total_theta = sum(theta)
-        if total_theta == 0:
-            total_theta = 1
-        code += [myDict[aa] / (1 + w * total_theta) for aa in AA]
-        code += [w * value / (1 + w * total_theta) for value in theta]
-        encodings.append(code)
-    return np.array(encodings, dtype=float), header
-
-import streamlit as st
 
 LICENSE_TEXT = """
 <div style="border:2.5px solid #1A4B7A; border-radius:18px; padding:26px 22px; background:#f6fafd; margin:32px 0;">
@@ -310,47 +189,58 @@ def main():
     if uploaded_file:
         fasta_string = uploaded_file.read().decode("utf-8")
         fasta_io = StringIO(fasta_string)
-        fasta_records = list(SeqIO.parse(fasta_io, 'fasta'))
+
+        # === ปรับตรงนี้: รับข้อมูลเป็น list of (name, seq) เสมอ ===
+        fasta_records = [(rec.id, str(rec.seq)) for rec in SeqIO.parse(fasta_io, 'fasta')]
         if not fasta_records:
             st.error("No sequences found!")
             return
+
+        # === ดึงฟีเจอร์ทั้ง 4 แบบ ===
         feat_aac, _ = AAC(fasta_records)
         feat_apaac, _ = APAAC(fasta_records, lambdaValue=1)
         feat_paac, _ = PAAC(fasta_records, lambdaValue=1)
-        all_feats = np.hstack((feat_aac, feat_apaac, feat_paac))
+        feat_dpc, _ = DPC(fasta_records, gap=0)  # <<< เพิ่ม DPC
+
+        all_feats = np.hstack((feat_aac, feat_apaac, feat_paac, feat_dpc))
+
         minmax_scaler = MinMaxScaler().fit(all_feats)
         standard_scaler = StandardScaler().fit(minmax_scaler.transform(all_feats))
         X_test = standard_scaler.transform(minmax_scaler.transform(all_feats))
+
         y_proba = model.predict_proba(X_test)
         csv_data = []
-        for rec, proba in zip(fasta_records, y_proba):
+        for (name, seq), proba in zip(fasta_records, y_proba):
             csv_data.append({
-                "Peptide Name": rec.id,
-                "Sequence": str(rec.seq),
-                "Probability (%)": round(proba[1]*100, 2)
+                "Peptide Name": name,
+                "Sequence": seq,
+                "Probability (%)": round(proba[1] * 100, 2)
             })
         csv_df = pd.DataFrame(csv_data)
         csv_file = csv_df.to_csv(index=False).encode('utf-8')
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("🔎 Prediction Result")
-        options = [rec.id for rec in fasta_records]
+
+        # options & selectbox ต้องใช้จาก fasta_records ที่เป็น tuple
+        options = [name for name, seq in fasta_records]
         selected_id = st.selectbox("Select a Sequence from your file:", options)
-        for rec, proba in zip(fasta_records, y_proba):
-            if rec.id == selected_id:
+
+        for (name, seq), proba in zip(fasta_records, y_proba):
+            if name == selected_id:
                 pct = proba[1] * 100
-                state_key = f'predict_pressed_{rec.id}'
+                state_key = f'predict_pressed_{name}'
                 if state_key not in st.session_state:
                     st.session_state[state_key] = False
                 st.subheader("📌 Peptide Sequence")
-                st.code(str(rec.seq), language="markdown")
+                st.code(seq, language="markdown")
                 col3d, collegend = st.columns([1.7, 1.0])
                 with col3d:
-                    if st.button("🔬 Show 3D Structure", key=f"btn_{rec.id}"):
+                    if st.button("🔬 Show 3D Structure", key=f"btn_{name}"):
                         st.session_state[state_key] = True
                     if st.session_state[state_key]:
-                        pdb_str = predict_structure(str(rec.seq))
+                        pdb_str = predict_structure(seq)
                         if pdb_str:
-                            render_mol_colored(pdb_str, str(rec.seq))
+                            render_mol_colored(pdb_str, seq)
                             st.markdown('<div style="margin-top:12px; margin-bottom:0; background:#F7FCEB; border-radius:12px; padding:14px;">', unsafe_allow_html=True)
                             st.metric(label="Probability of Drug Delivery Activity", value=f"{pct:.2f}%")
                             st.info(DDact(pct))
@@ -360,7 +250,7 @@ def main():
                                 st.download_button(
                                     "Download PDB",
                                     data=pdb_str,
-                                    file_name=f"{rec.id}_predicted.pdb",
+                                    file_name=f"{name}_predicted.pdb",
                                     mime="text/plain"
                                 )
                             with colcsv:
@@ -373,18 +263,15 @@ def main():
                         else:
                             st.error("3D structure prediction failed.")
                 with collegend:
-    # ถ้ายังไม่กดปุ่ม 3D โชว์ผล/แปรผลปกติ
                     if not st.session_state[state_key]:
                         st.markdown('<div style="margin-top:8px; background:#F7FCEB; border-radius:12px; padding:14px;">', unsafe_allow_html=True)
                         st.metric(label="Probability of Drug Delivery Activity", value=f"{pct:.2f}%")
                         st.info(DDact(pct))
                         st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown("---")
-    # === Show legend ก่อน ===
                     if st.session_state[state_key]:
                         st.markdown("**Each Amino Acid Color**", unsafe_allow_html=True)
                         render_legend()
-    # === แล้วค่อย Interpretation ===
                     st.markdown("""
         <div style='font-size:1.07rem; font-weight:600; margin-bottom:7px;'>**Interpretation of Probability Ranges**</div>
         <ul style='margin-left: -12px;'>
@@ -396,7 +283,6 @@ def main():
         </ul>
     """, unsafe_allow_html=True)
 
-                
     st.markdown("""
     <div style='margin-top:20px; text-align:center; font-size:1.04rem; color:#888;'>
     <b>Training Data Source:</b>
